@@ -25,8 +25,14 @@ func main() {
 	hostsFile := flag.String("hosts", "", "HTTP requests HOST header file")
 	// parallel := flag.Int("parallel", 1, "Number of parallel requests")
 	// iteration := flag.Int("iteration", -1, "Number of iterations over hosts file")
-	// timeout := flag.Int("timeout", 0, "HTTP requests timeout")
+	timeout := flag.String("timeout", "0s", "HTTP requests timeout. Valid time units are \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\"")
 	flag.Parse()
+
+	// Parse timeout
+	timeoutDuration, err := time.ParseDuration(*timeout)
+	if err != nil {
+		log.Fatalf("[%s] ERROR: %s", logName, err.Error())
+	}
 
 	// Read hosts file and put them inside a string slice
 	hosts, err := ReadHosts(*hostsFile)
@@ -36,7 +42,7 @@ func main() {
 
 	// Send HTTP requests and set start time for tracing latency
 	for _, host := range hosts {
-		go SendRequest(*endpoint, host, ch)
+		go SendRequest(*endpoint, host, timeoutDuration, ch)
 	}
 
 	now := time.Now()
@@ -80,7 +86,7 @@ func ReadHosts(hosts string) ([]string, error) {
 	return lines, nil
 }
 
-func SendRequest(url string, host string, ch chan<- httpstat.Result) {
+func SendRequest(url, host string, timeout time.Duration, ch chan<- httpstat.Result) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -92,6 +98,7 @@ func SendRequest(url string, host string, ch chan<- httpstat.Result) {
 	req = req.WithContext(ctx)
 
 	client := http.DefaultClient
+	client.Timeout = timeout
 	res, err := client.Do(req)
 	if err != nil {
 		log.Fatal(err)
