@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -13,10 +12,13 @@ import (
 	httpstat "github.com/tcnksm/go-httpstat"
 )
 
-const logFormat = "02/Jan/2006:15:04:05 -0700"
+const logName = "sendreq"
+
+var count int
 
 func main() {
-	ch := make(chan string)
+	var totalps int
+	ch := make(chan httpstat.Result)
 
 	// CLI flags
 	endpoint := flag.String("endpoint", "", "HTTP requests endpoint")
@@ -29,16 +31,36 @@ func main() {
 	// Read hosts file and put them inside a string slice
 	hosts, err := ReadHosts(*hostsFile)
 	if err != nil {
-		log.Fatalf("<%s> ERROR: %s", time.Now().Format(logFormat), err.Error())
+		log.Fatalf("[%s] ERROR: %s", logName, err.Error())
 	}
 
+	// Send HTTP requests and set start time for tracing latency
 	for _, host := range hosts {
 		go SendRequest(*endpoint, host, ch)
 	}
 
+	now := time.Now()
+
+	var first httpstat.Result
 	for range hosts {
-		fmt.Println(<-ch)
+		stat := <-ch
+		if time.Since(now).Seconds() <= float64(1) {
+			totalps = count
+		}
+		if count == 1 {
+			first = stat
+		}
 	}
+
+	log.Printf("[%s]: <First Request> DNS lookup: %d ms", logName, int(first.DNSLookup/time.Millisecond))
+	log.Printf("[%s]: <First Request> TCP connection: %d ms", logName, int(first.TCPConnection/time.Millisecond))
+	log.Printf("[%s]: <First Request> TLS handshake: %d ms", logName, int(first.TLSHandshake/time.Millisecond))
+	log.Printf("[%s]: <First Request> Server processing: %d ms", logName, int(first.ServerProcessing/time.Millisecond))
+	log.Printf("[%s]: <First Request> Content transfer: %d ms", logName, int(first.ContentTransfer(time.Now())/time.Millisecond))
+
+	log.Printf("[%s]: Total requests per second: %d", logName, totalps)
+	log.Printf("[%s]: Total requests done: %d", logName, count)
+	log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(now)/time.Millisecond))
 }
 
 func ReadHosts(hosts string) ([]string, error) {
@@ -58,7 +80,7 @@ func ReadHosts(hosts string) ([]string, error) {
 	return lines, nil
 }
 
-func SendRequest(url string, host string, ch chan<- string) {
+func SendRequest(url string, host string, ch chan<- httpstat.Result) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -70,15 +92,12 @@ func SendRequest(url string, host string, ch chan<- string) {
 	req = req.WithContext(ctx)
 
 	client := http.DefaultClient
-	start := time.Now()
 	res, err := client.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
-	secs := time.Since(start).Seconds()
-
-	body, _ := ioutil.ReadAll(res.Body)
 	res.Body.Close()
+	count++
 
-	ch <- fmt.Sprintf("%.2f elapsed with response length: %d %s", secs, len(body), url)
+	ch <- result
 }
