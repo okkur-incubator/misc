@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"time"
 
 	httpstat "github.com/tcnksm/go-httpstat"
@@ -18,13 +19,18 @@ var count int
 
 func main() {
 	var totalps int
+	var first httpstat.Result
+
+	// setup channels
 	ch := make(chan httpstat.Result)
+	killc := make(chan os.Signal, 1)
+	signal.Notify(killc, os.Interrupt)
 
 	// CLI flags
 	endpoint := flag.String("endpoint", "", "HTTP requests endpoint")
 	hostsFile := flag.String("hosts", "", "HTTP requests HOST header file")
 	// parallel := flag.Int("parallel", 1, "Number of parallel requests")
-	// iteration := flag.Int("iteration", -1, "Number of iterations over hosts file")
+	iteration := flag.Int("iteration", -1, "Number of iterations over hosts file")
 	timeout := flag.String("timeout", "0s", "HTTP requests timeout. Valid time units are \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\"")
 	flag.Parse()
 
@@ -40,29 +46,53 @@ func main() {
 		log.Fatalf("[%s] ERROR: %s", logName, err.Error())
 	}
 
-	// Send HTTP requests and set start time for tracing latency
-	for _, host := range hosts {
-		go SendRequest(*endpoint, host, timeoutDuration, ch)
-	}
-
 	now := time.Now()
 
-	var first httpstat.Result
-	for range hosts {
-		stat := <-ch
-		if time.Since(now).Seconds() <= float64(1) {
-			totalps = count
-		}
-		if count == 1 {
-			first = stat
+	if *iteration == -1 {
+		go func() {
+			for range killc {
+				log.Printf("[%s]: Total requests per second: %d", logName, totalps)
+				log.Printf("[%s]: Total requests done: %d", logName, count)
+				log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(now)/time.Millisecond))
+				firstReqLog(first)
+				os.Exit(0)
+			}
+		}()
+		for {
+			// Send HTTP requests and set start time for tracing latency
+			for _, host := range hosts {
+				go SendRequest(*endpoint, host, timeoutDuration, ch)
+			}
+
+			for range hosts {
+				stat := <-ch
+				if time.Since(now).Seconds() <= float64(1) {
+					totalps = count
+				}
+				if count == 1 {
+					first = stat
+				}
+			}
 		}
 	}
 
-	log.Printf("[%s]: <First Request> DNS lookup: %d ms", logName, int(first.DNSLookup/time.Millisecond))
-	log.Printf("[%s]: <First Request> TCP connection: %d ms", logName, int(first.TCPConnection/time.Millisecond))
-	log.Printf("[%s]: <First Request> TLS handshake: %d ms", logName, int(first.TLSHandshake/time.Millisecond))
-	log.Printf("[%s]: <First Request> Server processing: %d ms", logName, int(first.ServerProcessing/time.Millisecond))
-	log.Printf("[%s]: <First Request> Content transfer: %d ms", logName, int(first.ContentTransfer(time.Now())/time.Millisecond))
+	for i := 1; i <= *iteration; i++ {
+		// Send HTTP requests and set start time for tracing latency
+		for _, host := range hosts {
+			go SendRequest(*endpoint, host, timeoutDuration, ch)
+		}
+
+		for range hosts {
+			stat := <-ch
+			if time.Since(now).Seconds() <= float64(1) {
+				totalps = count
+			}
+			if count == 1 {
+				first = stat
+			}
+		}
+	}
+	firstReqLog(first)
 
 	log.Printf("[%s]: Total requests per second: %d", logName, totalps)
 	log.Printf("[%s]: Total requests done: %d", logName, count)
@@ -107,4 +137,12 @@ func SendRequest(url, host string, timeout time.Duration, ch chan<- httpstat.Res
 	count++
 
 	ch <- result
+}
+
+func firstReqLog(first httpstat.Result) {
+	log.Printf("[%s]: <First Request> DNS lookup: %d ms", logName, int(first.DNSLookup/time.Millisecond))
+	log.Printf("[%s]: <First Request> TCP connection: %d ms", logName, int(first.TCPConnection/time.Millisecond))
+	log.Printf("[%s]: <First Request> TLS handshake: %d ms", logName, int(first.TLSHandshake/time.Millisecond))
+	log.Printf("[%s]: <First Request> Server processing: %d ms", logName, int(first.ServerProcessing/time.Millisecond))
+	log.Printf("[%s]: <First Request> Content transfer: %d ms", logName, int(first.ContentTransfer(time.Now())/time.Millisecond))
 }
