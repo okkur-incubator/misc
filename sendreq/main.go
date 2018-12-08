@@ -144,9 +144,10 @@ func SendConcurrentRequest(url, host string, timeout time.Duration, ch chan<- ht
 func SendReq(url, host string, timeout time.Duration) httpstat.Result {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return httpstat.Result{}
 	}
-	req.Header.Set("Host", host)
+	req.Host = host
 
 	var result httpstat.Result
 	ctx := httpstat.WithHTTPStat(req.Context(), &result)
@@ -158,7 +159,8 @@ func SendReq(url, host string, timeout time.Duration) httpstat.Result {
 	}
 	res, err := client.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return httpstat.Result{}
 	}
 	res.Body.Close()
 
