@@ -46,15 +46,14 @@ func main() {
 		log.Fatalf("[%s] ERROR: %s", logName, err.Error())
 	}
 
-	now := time.Now()
-
+	start := time.Now()
 	if *iteration == -1 {
 		go func() {
 			for range killc {
 				log.Printf("[%s]: Total requests per second: %d", logName, totalps)
 				log.Printf("[%s]: Total requests done: %d", logName, count)
-				log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(now)/time.Millisecond))
-				firstReqLog(first)
+				log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(start)/time.Millisecond))
+				log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
 				os.Exit(0)
 			}
 		}()
@@ -66,12 +65,14 @@ func main() {
 					count++
 					if count == 1 {
 						first = result
+						log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
 					}
 					continue
 				}
 				go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 			}
 
+			now := time.Now()
 			if *parallel {
 				for range hosts {
 					stat := <-ch
@@ -80,6 +81,7 @@ func main() {
 					}
 					if count == 1 {
 						first = stat
+						log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
 					}
 				}
 			}
@@ -93,12 +95,14 @@ func main() {
 				result := SendReq(*endpoint, host, timeoutDuration)
 				count++
 				if count == 1 {
-					first = result
+					log.Printf("[%s]: First request duration: %d ms", logName, int(result.Total(time.Now())/time.Millisecond))
 				}
 				continue
 			}
 			go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 		}
+
+		now := time.Now()
 		if *parallel {
 			for range hosts {
 				stat := <-ch
@@ -106,16 +110,15 @@ func main() {
 					totalps = count
 				}
 				if count == 1 {
-					first = stat
+					log.Printf("[%s]: First request duration: %d ms", logName, int(stat.Total(time.Now())/time.Millisecond))
 				}
 			}
 		}
 	}
-	firstReqLog(first)
 
 	log.Printf("[%s]: Total requests per second: %d", logName, totalps)
 	log.Printf("[%s]: Total requests done: %d", logName, count)
-	log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(now)/time.Millisecond))
+	log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(start)/time.Millisecond))
 }
 
 func ReadHosts(hosts string) ([]string, error) {
@@ -165,12 +168,4 @@ func SendReq(url, host string, timeout time.Duration) httpstat.Result {
 	res.Body.Close()
 
 	return result
-}
-
-func firstReqLog(first httpstat.Result) {
-	log.Printf("[%s]: <First Request> DNS lookup: %d ms", logName, int(first.DNSLookup/time.Millisecond))
-	log.Printf("[%s]: <First Request> TCP connection: %d ms", logName, int(first.TCPConnection/time.Millisecond))
-	log.Printf("[%s]: <First Request> TLS handshake: %d ms", logName, int(first.TLSHandshake/time.Millisecond))
-	log.Printf("[%s]: <First Request> Server processing: %d ms", logName, int(first.ServerProcessing/time.Millisecond))
-	log.Printf("[%s]: <First Request> Content transfer: %d ms", logName, int(first.ContentTransfer(time.Now())/time.Millisecond))
 }
