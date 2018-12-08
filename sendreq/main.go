@@ -29,7 +29,7 @@ func main() {
 	// CLI flags
 	endpoint := flag.String("endpoint", "", "HTTP requests endpoint")
 	hostsFile := flag.String("hosts", "", "HTTP requests HOST header file")
-	// parallel := flag.Int("parallel", 1, "Number of parallel requests")
+	parallel := flag.Bool("parallel", true, "Send requests concurrently")
 	iteration := flag.Int("iteration", -1, "Number of iterations over hosts file")
 	timeout := flag.String("timeout", "0s", "HTTP requests timeout. Valid time units are \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\"")
 	flag.Parse()
@@ -61,16 +61,26 @@ func main() {
 		for {
 			// Send HTTP requests and set start time for tracing latency
 			for _, host := range hosts {
-				go SendRequest(*endpoint, host, timeoutDuration, ch)
+				if !*parallel {
+					result := SendReq(*endpoint, host, timeoutDuration)
+					count++
+					if count == 1 {
+						first = result
+					}
+					continue
+				}
+				go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 			}
 
-			for range hosts {
-				stat := <-ch
-				if time.Since(now).Seconds() <= float64(1) {
-					totalps = count
-				}
-				if count == 1 {
-					first = stat
+			if *parallel {
+				for range hosts {
+					stat := <-ch
+					if time.Since(now).Seconds() <= float64(1) {
+						totalps = count
+					}
+					if count == 1 {
+						first = stat
+					}
 				}
 			}
 		}
@@ -79,16 +89,25 @@ func main() {
 	for i := 1; i <= *iteration; i++ {
 		// Send HTTP requests and set start time for tracing latency
 		for _, host := range hosts {
-			go SendRequest(*endpoint, host, timeoutDuration, ch)
-		}
-
-		for range hosts {
-			stat := <-ch
-			if time.Since(now).Seconds() <= float64(1) {
-				totalps = count
+			if !*parallel {
+				result := SendReq(*endpoint, host, timeoutDuration)
+				count++
+				if count == 1 {
+					first = result
+				}
+				continue
 			}
-			if count == 1 {
-				first = stat
+			go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
+		}
+		if *parallel {
+			for range hosts {
+				stat := <-ch
+				if time.Since(now).Seconds() <= float64(1) {
+					totalps = count
+				}
+				if count == 1 {
+					first = stat
+				}
 			}
 		}
 	}
@@ -116,7 +135,13 @@ func ReadHosts(hosts string) ([]string, error) {
 	return lines, nil
 }
 
-func SendRequest(url, host string, timeout time.Duration, ch chan<- httpstat.Result) {
+func SendConcurrentRequest(url, host string, timeout time.Duration, ch chan<- httpstat.Result) {
+	result := SendReq(url, host, timeout)
+	count++
+	ch <- result
+}
+
+func SendReq(url, host string, timeout time.Duration) httpstat.Result {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -128,15 +153,16 @@ func SendRequest(url, host string, timeout time.Duration, ch chan<- httpstat.Res
 	req = req.WithContext(ctx)
 
 	client := http.DefaultClient
-	client.Timeout = timeout
+	if timeout.String() == "" {
+		client.Timeout = timeout
+	}
 	res, err := client.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
 	res.Body.Close()
-	count++
 
-	ch <- result
+	return result
 }
 
 func firstReqLog(first httpstat.Result) {
