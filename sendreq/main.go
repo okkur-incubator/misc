@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,7 +19,6 @@ const logName = "sendreq"
 var count int
 
 func main() {
-	var totalps int
 	var first httpstat.Result
 
 	// setup channels
@@ -50,7 +50,7 @@ func main() {
 	if *iteration == -1 {
 		go func() {
 			for range killc {
-				log.Printf("[%s]: Total requests per second: %d", logName, totalps)
+				log.Printf("[%s]: Total requests per second: %d", logName, int(math.Round(float64(count)/time.Since(start).Seconds())))
 				log.Printf("[%s]: Total requests done: %d", logName, count)
 				log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(start)/time.Millisecond))
 				log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
@@ -72,13 +72,9 @@ func main() {
 				go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 			}
 
-			now := time.Now()
 			if *parallel {
 				for range hosts {
 					stat := <-ch
-					if time.Since(now).Seconds() <= float64(1) {
-						totalps = count
-					}
 					if count == 1 {
 						first = stat
 						log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
@@ -102,13 +98,9 @@ func main() {
 			go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 		}
 
-		now := time.Now()
 		if *parallel {
 			for range hosts {
 				stat := <-ch
-				if time.Since(now).Seconds() <= float64(1) {
-					totalps = count
-				}
 				if count == 1 {
 					log.Printf("[%s]: First request duration: %d ms", logName, int(stat.Total(time.Now())/time.Millisecond))
 				}
@@ -116,7 +108,7 @@ func main() {
 		}
 	}
 
-	log.Printf("[%s]: Total requests per second: %d", logName, totalps)
+	log.Printf("[%s]: Total requests per second: %d", logName, int(math.Round(float64(count)/time.Since(start).Seconds())))
 	log.Printf("[%s]: Total requests done: %d", logName, count)
 	log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(start)/time.Millisecond))
 }
