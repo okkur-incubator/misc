@@ -46,6 +46,8 @@ func main() {
 		log.Fatalf("[%s] ERROR: %s", logName, err.Error())
 	}
 
+	go logCountEvery15s()
+
 	start := time.Now()
 	if *iteration == -1 {
 		go func() {
@@ -160,4 +162,10 @@ func SendReq(url, host string, timeout time.Duration) httpstat.Result {
 	res.Body.Close()
 
 	return result
+}
+
+func logCountEvery15s() {
+	for range time.Tick(15 * time.Second) {
+		log.Printf("[%s]: Number of requests since the start: %d", logName, count)
+	}
 }
