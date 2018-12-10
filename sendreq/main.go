@@ -11,6 +11,8 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/korovkin/limiter"
+
 	httpstat "github.com/tcnksm/go-httpstat"
 )
 
@@ -30,6 +32,7 @@ func main() {
 	endpoint := flag.String("endpoint", "", "HTTP requests endpoint")
 	hostsFile := flag.String("hosts", "", "HTTP requests HOST header file")
 	parallel := flag.Bool("parallel", true, "Send requests concurrently")
+	routines := flag.Int("routines", 10, "Maximum number of goroutines in parallel")
 	iteration := flag.Int("iteration", -1, "Number of iterations over hosts file")
 	timeout := flag.String("timeout", "0s", "HTTP requests timeout. Valid time units are \"ns\", \"us\" (or \"µs\"), \"ms\", \"s\", \"m\", \"h\"")
 	flag.Parse()
@@ -71,7 +74,10 @@ func main() {
 					}
 					continue
 				}
-				go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
+				limit := limiter.NewConcurrencyLimiter(*routines)
+				limit.Execute(func() {
+					SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
+				})
 			}
 
 			if *parallel {
@@ -97,7 +103,10 @@ func main() {
 				}
 				continue
 			}
-			go SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
+			limit := limiter.NewConcurrencyLimiter(*routines)
+			limit.Execute(func() {
+				SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
+			})
 		}
 
 		if *parallel {
