@@ -1,0 +1,4 @@
+github.com/korovkin/limiter v0.0.0-20170610225302-6b837f5fd496 h1:bS17I5YOpfCP6KS7aFOm0/LkZn6J2M/g41+O6LzvtUY=
+github.com/korovkin/limiter v0.0.0-20170610225302-6b837f5fd496/go.mod h1:bttpekv26JrhFNCYlxnxn8a1jw8Q0gi8iHe0RC4JLBg=
+github.com/tcnksm/go-httpstat v0.2.0 h1:rP7T5e5U2HfmOBmZzGgGZjBQ5/GluWUylujl0tJ04I0=
+github.com/tcnksm/go-httpstat v0.2.0/go.mod h1:s3JVJFtQxtBEBC9dwcdTTXS9xFnM3SXAZwPG41aurT8=
