@@ -49,19 +49,21 @@ func main() {
 		log.Fatalf("[%s] ERROR: %s", logName, err.Error())
 	}
 
+	limit := limiter.NewConcurrencyLimiter(*routines)
+
 	go logCountEvery15s()
 
 	start := time.Now()
+	go func() {
+		for range killc {
+			log.Printf("[%s]: Total requests per second: %d", logName, int(math.Round(float64(count)/time.Since(start).Seconds())))
+			log.Printf("[%s]: Total requests done: %d", logName, count)
+			log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(start)/time.Millisecond))
+			log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
+			os.Exit(0)
+		}
+	}()
 	if *iteration == -1 {
-		go func() {
-			for range killc {
-				log.Printf("[%s]: Total requests per second: %d", logName, int(math.Round(float64(count)/time.Since(start).Seconds())))
-				log.Printf("[%s]: Total requests done: %d", logName, count)
-				log.Printf("[%s]: Total time all requests took: %d ms", logName, int(time.Since(start)/time.Millisecond))
-				log.Printf("[%s]: First request duration: %d ms", logName, int(first.Total(time.Now())/time.Millisecond))
-				os.Exit(0)
-			}
-		}()
 		for {
 			// Send HTTP requests and set start time for tracing latency
 			for _, host := range hosts {
@@ -74,10 +76,12 @@ func main() {
 					}
 					continue
 				}
-				limit := limiter.NewConcurrencyLimiter(*routines)
 				limit.Execute(func() {
 					SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 				})
+				if limit.GetNumInProgress() >= int32(*routines) {
+					limit.Wait()
+				}
 			}
 
 			if *parallel {
@@ -103,10 +107,12 @@ func main() {
 				}
 				continue
 			}
-			limit := limiter.NewConcurrencyLimiter(*routines)
 			limit.Execute(func() {
 				SendConcurrentRequest(*endpoint, host, timeoutDuration, ch)
 			})
+			if limit.GetNumInProgress() >= int32(*routines) {
+				limit.Wait()
+			}
 		}
 
 		if *parallel {
